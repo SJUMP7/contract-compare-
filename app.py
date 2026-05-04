@@ -4,7 +4,7 @@ Streaming AI response · Cached PDF · Cached model · Clean light UI
 """
 import os, re, json, toml
 import streamlit as st
-from utils import extract_pdf_text, stream_contract_comparison, validate_api_key, detect_available_model
+from utils import stream_contract_comparison, validate_api_key, detect_available_model
 from excel_generator import generate_comparison_excel
 
 # ─── Page config ─────────────────────────────────────────────────────────────
@@ -193,12 +193,9 @@ st.markdown("<hr>", unsafe_allow_html=True)
 
 # ─── Processing ───────────────────────────────────────────────────────────────
 if run:
-    # 1. Extract PDF text (cached — instant if same file re-uploaded)
-    with st.spinner("Reading PDFs…"):
+    with st.spinner("Preparing PDFs…"):
         pdf1_bytes = up1.read()
         pdf2_bytes = up2.read()
-        pdf1_text = extract_pdf_text(pdf1_bytes)
-        pdf2_text = extract_pdf_text(pdf2_bytes)
 
     # 2. Stream AI response with live progress bar
     st.markdown("**🔍 AI Scanning Contracts…**")
@@ -209,7 +206,7 @@ if run:
     char_count = 0
     EXPECTED_CHARS = 6000  # rough estimate for progress bar
 
-    for chunk in stream_contract_comparison(pdf1_text, pdf2_text, api_key):
+    for chunk in stream_contract_comparison(pdf1_bytes, pdf2_bytes, api_key):
         chunks.append(chunk)
         char_count += len(chunk)
         pct = min(int(char_count / EXPECTED_CHARS * 100), 99)

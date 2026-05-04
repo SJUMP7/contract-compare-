@@ -3,7 +3,6 @@ utils.py — PDF extraction + Gemini AI contract comparison
 Uses the NEW google.genai SDK (google-genai package)
 """
 import io
-import pdfplumber
 import streamlit as st
 from google import genai
 from google.genai import types
@@ -90,108 +89,124 @@ def validate_api_key(api_key: str) -> tuple[bool, str]:
 
 
 
-# ─── Cached PDF extraction ────────────────────────────────────────────────────
-@st.cache_data(show_spinner=False)
-def extract_pdf_text(file_bytes: bytes) -> str:
-    """Extract all text from PDF bytes. Cached — re-uploads are instant."""
-    pages = []
-    try:
-        with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
-            for page in pdf.pages:
-                t = page.extract_text()
-                if t:
-                    pages.append(t)
-        return "\n".join(pages)
-    except Exception as e:
-        return f"[PDF READ ERROR: {e}]"
-
-
 # ─── Build prompt ─────────────────────────────────────────────────────────────
-def _build_prompt(pdf1: str, pdf2: str) -> str:
+def _build_prompt() -> str:
     return f"""
-You are an expert hotel contract auditor and data analyst.
-Your task: compare two hotel contract PDFs strictly — Contract 1 (previous year) vs Contract 2 (new year).
-Perform a 100% FULL SCAN. DO NOT skip or sample any data.
-Every room type, every season/period, every fee, every policy, and every condition MUST be extracted and compared line-by-line.
-Output ONLY a single valid JSON object. No markdown fences, no explanations, no extra text.
+You are an expert hotel contract data extractor.
+Your task is to extract data from TWO hotel contract PDFs (Contract 1: Old Year, Contract 2: New Year) and prepare it for our Python system.
+
+Perform a 100% FULL SCAN. DO NOT skip any data, but you MUST format the text output according to the STRICT PATTERNS below. Do not output raw paragraphs.
+CRITICAL JSON RULES:
+1. You must output STRICTLY VALID JSON.
+2. DO NOT use double quotes (") inside any of your string values. If you need to quote something, use single quotes (').
+3. If you need newlines within a string, escape them as \\n. DO NOT use literal unescaped newlines.
 
 ═══════════════════════════════════════════════
-OPERATIONAL DIRECTIVES (STRICT — NO EXCEPTIONS)
+FORMATTING PATTERNS (STRICT!)
 ═══════════════════════════════════════════════
-1. 100% Full Scan — extract EVERY period, EVERY room, EVERY season. Never skip or summarise.
-2. English only in all output fields.
-3. If hotel names differ between contracts → populate the "warning" field with a bold warning message.
-4. Prices MUST appear on a SEPARATE row from the period/season header row (never on the same row).
-5. COMPULSORY charges (e.g. Gala Dinner, New Year's Eve Dinner) go in section2 "conditions" array ONLY. Never in section3.
-6. E.B (Early Bird) / Long Stay / Benefits / Promotions MUST go in section3_conditions ONLY. Never in section1.
-7. diff_amount  = price_2 − price_1  (positive = Contract 2 more expensive, prefix "+"; negative prefix "-")
-8. diff_percent = (price_2 − price_1) / price_1 × 100, formatted as "+4.98%" or "-3.21%"
-9. Child Policy 11.99 Rule: if contract says "under 12 yrs" → write "11.99"; if "5–11 yrs" → write "5–11.99 yrs". Never use "12" as upper bound unless the contract explicitly says "12.99".
-10. Room in Contract 2 only → append "(New Room in Contract YY/YY)" to room_name.
-    Room missing in Contract 2 → append "(Not have in Contract YY/YY)" to room_name.
-11. Year format: "2025–2026" → "25/26". Use short format in all year fields.
-12. Period date format: "1 NOV 24 - 24 DEC 24 (Season Name)".
-    Multiple sub-periods: "1 Nov-22 Dec 25 / 1 Apr-14 Jul 26 / 1 Sep-31 Oct 26".
-13. For each Early Bird / Long Stay offer, explicitly state whether it is combinable with other offers or not.
-    If combinable → list what it can be combined with. If not combinable → state "Not combinable with other offers".
-    If Black Out dates exist → state them, e.g. "*Black Out: 23 DEC 26 - 8 JAN 27".
-14. Child Policy pattern:
-      Child 0-3.99 yrs Sharing Bed + ABF = XX THB (or FOC)
-      Child 4-11.99 yrs Extra Person + ABF = XX THB (or FOC)
-      Adult Extra Person + ABF = XX THB
-15. If Column F conditions overflow to other period rows, that is acceptable.
-16. Section 1 covers Book-by / Stay Period promotions ONLY. Skip section1 entirely if neither contract has such promotions.
-17. At the end, add "recommendation" field:
-      "✅ Recommend to renew the contract" if Contract 2 is overall better.
-      "🔁 Recommend key points to consider." if Contract 2 has unfavourable changes.
+1. **Season Conditions (for periods/seasons)**:
+   DO NOT copy paragraphs. Extract and format ONLY the key points as an array of strings using the '•' bullet point:
+   - • MIN. [x] NIGHTS
+   - • COMPULSORY [GALA DINNER / NEW YEAR] on [Date] = [Price] THB
+   - • **NOT ALLOWED CHECK OUT on [Date] - [Date]**
+   - • FULL MOON Period [Date] - [Date] = [Price] THB
+
+2. **Extra bed / Extra person / Child Policy**:
+   Summarize using this exact format with the '•' bullet point:
+   - • CHD ([Age]-[Age] yrs) Sharing bed + ABF = [Price or FOC]
+   - • CHD ([Age]-[Age] yrs) Extra bed + ABF = [Price] THB
+   - • Adult ([Age] yrs and above) Extra bed + ABF = [Price] THB
+
+3. **Early Bird Offer & Bonus Nights & Benefits**:
+   Format strictly using the '•' bullet point for titles and items:
+   - • [Topic or Benefit Name]:
+   - • Valid Period: [Date - Date]
+   - • E.B [x] DAYS, [x]% discount.
+   - • [Can combine with: Promotion Name]
+
+4. **Cancellation Policy**:
+   Format strictly using the '•' bullet point for the valid period, but NO bullet for the penalty details:
+   - • Valid Period: [Season Name / Date]
+   - Notice [x] days prior to arrival, penalty [x]% (or x nights)
+
+5. **Rooms & Prices**:
+   Extract all room names and prices exactly. DO NOT calculate percentage or diffs! The Python system will do the math.
 
 ═══════════════════════════════════════════════
-CONTRACT 1 (Previous Year):
-{pdf1}
-
-CONTRACT 2 (New Year):
-{pdf2}
+CHAIN OF THOUGHT (STRICT EXTRACTION LOGIC)
+═══════════════════════════════════════════════
+Mentally follow these steps:
+1. Scan for Hotel Name and Contract Years.
+2. Identify all Seasons/Periods. Pair them logically (e.g. 1 Nov 24 pairs with 1 Nov 25).
+3. Extract rooms and prices for each season.
+4. Extract Season Conditions, Extra Bed, Early Bird, Bonus Night, Wellbeing, and Cancellation, strictly converting them into the FORMATTING PATTERNS above.
+5. Finalize JSON.
 
 ═══════════════════════════════════════════════
-RETURN THIS EXACT JSON STRUCTURE (no extra keys, no markdown):
+THE PDF FILES HAVE BEEN PROVIDED AS INLINE DOCUMENTS.
+Contract 1 is the first PDF provided.
+Contract 2 is the second PDF provided.
+═══════════════════════════════════════════════
+RETURN THIS EXACT JSON STRUCTURE:
 {{
-  "hotel_name": "",
-  "year_1": "",
-  "year_2": "",
-  "warning": "",
-  "recommendation": "",
-  "section1_promotions": [
-    {{
-      "condition": "",
-      "promo1": "",
-      "promo2": "",
-      "diff": ""
-    }}
+  "step_by_step_analysis": [
+    "Thinking step 1: I am looking at Room A...",
+    "Thinking step 2: Comparing conditions..."
   ],
-  "section2_periods": [
+  "hotel_name": "Hotel Name",
+  "year_1": "24/25",
+  "year_2": "25/26",
+  "seasons": [
     {{
-      "season_name": "",
-      "period_1": "",
-      "period_2": "",
-      "conditions": [],
-      "change_note": "",
+      "season_name": "PEAK SEASON (or empty)",
+      "period_1": "1 NOV 24 - 23 DEC 24",
+      "period_2": "1 NOV 25 - 23 DEC 25",
+      "conditions": [
+        "MIN. 3 NIGHTS",
+        "COMPULSORY GALA DINNER on 31 DEC = 1000 THB"
+      ],
       "rooms": [
         {{
-          "room_name": "",
-          "price_1": 0,
-          "price_2": 0,
-          "diff_percent": "",
-          "diff_amount": 0
+          "room_name": "Deluxe Room",
+          "price_1": 15000,
+          "price_2": 16000
         }}
       ]
     }}
   ],
-  "section3_conditions": [
+  "extra_bed": [
     {{
-      "condition_type": "",
-      "contract_1": "",
-      "contract_2": "",
-      "diff": ""
+      "topic": "Child / Extra bed policy",
+      "contract_1": ["CHD (4-11.99 yrs) Sharing bed = FOC", "Adult Extra bed = 1500 THB"],
+      "contract_2": ["CHD (4-11.99 yrs) Sharing bed = FOC", "Adult Extra bed = 1500 THB"]
+    }}
+  ],
+  "early_bird": [
+    {{
+      "topic": "Early Bird details",
+      "contract_1": ["• Valid Period: 1 Nov 24 - 31 Oct 25", "• E.B 60 DAYS, 10% discount", "• Blackout dates: None"],
+      "contract_2": ["• Valid Period: 1 Nov 25 - 31 Oct 26", "• E.B 60 DAYS, 10% discount", "• Blackout dates: None"]
+    }}
+  ],
+  "bonus_night": [
+    {{
+      "topic": "Bonus night details",
+      "contract_1": ["• Valid Period: 1 May 24 - 31 Oct 24", "• STAY 5 PAY 4"],
+      "contract_2": ["• Valid Period: 1 May 25 - 31 Oct 25", "• STAY 5 PAY 4"]
+    }}
+  ],
+  "wellbeing": [
+    {{
+      "topic": "Long stay / Wellbeing",
+      "contract_1": ["• Honeymoon Benefits (Minimum 3 nights stay required):", "• Welcome Drink and Cold Towel upon arrival", "• Complimentary one (1) slice of cake in room"],
+      "contract_2": ["• Honeymoon Benefits (Minimum 3 nights stay required):", "• Welcome Drink and Cold Towel upon arrival", "• Complimentary one (1) slice of cake in room"]
+    }}
+  ],
+  "cancellation": [
+    {{
+      "topic": "Cancellation Policy",
+      "contract_1": ["• Valid Period: Peak Season", "Notice 45 days prior to arrival, penalty 100% of total booking revenue"],
+      "contract_2": ["• Valid Period: Peak Season", "Notice 45 days prior to arrival, penalty 100% of total booking revenue"]
     }}
   ]
 }}
@@ -199,18 +214,36 @@ RETURN THIS EXACT JSON STRUCTURE (no extra keys, no markdown):
 
 
 # ─── Streaming comparison ─────────────────────────────────────────────────────
-def stream_contract_comparison(pdf1: str, pdf2: str, api_key: str):
+def stream_contract_comparison(pdf1_bytes: bytes, pdf2_bytes: bytes, api_key: str):
     """
     Generator yielding text chunks from Gemini as they stream in.
     Auto-detects the best available model for this API key.
     """
     client = _get_client(api_key)
-    prompt = _build_prompt(pdf1, pdf2)
+    prompt = _build_prompt()
 
     config = types.GenerateContentConfig(
         temperature=0,
+        top_p=0.0,
+        top_k=1,
         max_output_tokens=32768,
+        response_mime_type="application/json",
     )
+
+    # Convert PDFs to native Gemini Parts
+    pdf1_part = types.Part.from_bytes(data=pdf1_bytes, mime_type="application/pdf")
+    pdf2_part = types.Part.from_bytes(data=pdf2_bytes, mime_type="application/pdf")
+    
+    # Construct multi-modal payload
+    contents = [
+        "Please analyze the following two hotel contracts.",
+        "\n\n--- CONTRACT 1 (Previous Year) ---\n",
+        pdf1_part,
+        "\n\n--- CONTRACT 2 (New Year) ---\n",
+        pdf2_part,
+        "\n\n--- INSTRUCTIONS ---\n",
+        prompt
+    ]
 
     # Auto-detect best model
     best_model, all_models = detect_available_model(api_key)
@@ -235,7 +268,7 @@ def stream_contract_comparison(pdf1: str, pdf2: str, api_key: str):
         try:
             for chunk in client.models.generate_content_stream(
                 model=model_name,
-                contents=prompt,
+                contents=contents,
                 config=config,
             ):
                 if chunk.text:
@@ -254,6 +287,6 @@ def stream_contract_comparison(pdf1: str, pdf2: str, api_key: str):
 
 
 # ─── Non-streaming alias (backward compatible) ────────────────────────────────
-def run_contract_comparison(pdf1: str, pdf2: str, api_key: str) -> str:
+def run_contract_comparison(pdf1_bytes: bytes, pdf2_bytes: bytes, api_key: str) -> str:
     """Collects all streaming chunks and returns the full JSON string."""
-    return "".join(stream_contract_comparison(pdf1, pdf2, api_key))
+    return "".join(stream_contract_comparison(pdf1_bytes, pdf2_bytes, api_key))
