@@ -150,6 +150,19 @@ def generate_comparison_excel(data: dict) -> bytes:
 
     row += 1
 
+    def _extract_notes(lines):
+        """Returns (clean_text, notes_list)"""
+        if not isinstance(lines, list):
+            lines = [lines]
+        clean = []
+        notes = []
+        for line in lines:
+            if "[RED]" in line:
+                notes.append(line.replace("[RED]", "").strip())
+            else:
+                clean.append(line)
+        return "\n".join(clean), notes
+
     def _build_stacked_section(title, key):
         nonlocal row
         items = data.get(key, [])
@@ -161,11 +174,12 @@ def generate_comparison_excel(data: dict) -> bytes:
         row += 1
         
         for item in items:
-            c1_raw = item.get("contract_1") or ""
-            c2_raw = item.get("contract_2") or ""
+            c1_raw = item.get("contract_1", [])
+            c2_raw = item.get("contract_2", [])
             
-            c1 = "\n".join(c1_raw) if isinstance(c1_raw, list) else str(c1_raw)
-            c2 = "\n".join(c2_raw) if isinstance(c2_raw, list) else str(c2_raw)
+            c1_text, c1_notes = _extract_notes(c1_raw)
+            c2_text, c2_notes = _extract_notes(c2_raw)
+            all_notes = c1_notes + [n for n in c2_notes if n not in c1_notes]
             
             # Contract 1
             _cell(ws, row, 1, f"Contract {year_1}", fill=_LGRAY, font=_BLACK_BOLD, align=_LEFT, border=_THIN)
@@ -173,10 +187,10 @@ def generate_comparison_excel(data: dict) -> bytes:
             ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
             row += 1
             
-            _cell(ws, row, 1, c1, font=_BLACK_NORM, align=_LEFT, border=_THIN)
+            _cell(ws, row, 1, c1_text, font=_BLACK_NORM, align=_LEFT, border=_THIN)
             for c in range(2, 7): _cell(ws, row, c, "", border=_THIN)
             ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
-            ws.row_dimensions[row].height = max(18, 15 * (c1.count("\n") + 1))
+            ws.row_dimensions[row].height = max(18, 15 * (c1_text.count("\n") + 1))
             row += 1
             
             # Contract 2
@@ -185,11 +199,21 @@ def generate_comparison_excel(data: dict) -> bytes:
             ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
             row += 1
             
-            _cell(ws, row, 1, c2, font=_BLACK_NORM, align=_LEFT, border=_THIN)
+            _cell(ws, row, 1, c2_text, font=_BLACK_NORM, align=_LEFT, border=_THIN)
             for c in range(2, 7): _cell(ws, row, c, "", border=_THIN)
             ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
-            ws.row_dimensions[row].height = max(18, 15 * (c2.count("\n") + 1))
+            ws.row_dimensions[row].height = max(18, 15 * (c2_text.count("\n") + 1))
             row += 1
+            
+            # Notes
+            if all_notes:
+                notes_text = "\n".join(all_notes)
+                _cell(ws, row, 1, notes_text, font=Font(color="CC0000", bold=True, name="Calibri", size=10), align=_LEFT, border=_THIN)
+                for c in range(2, 7): _cell(ws, row, c, "", border=_THIN)
+                ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
+                ws.row_dimensions[row].height = max(18, 15 * (notes_text.count("\n") + 1))
+                row += 1
+                
         row += 1
 
     def _build_sidebyside_section(title, key):
@@ -207,32 +231,48 @@ def generate_comparison_excel(data: dict) -> bytes:
         _cell(ws, row, 2, "", border=_THIN)
         ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=2)
         
-        _cell(ws, row, 3, f"Contract {year_2}", fill=_LGRAY, font=_BLACK_BOLD, align=_LEFT, border=_THIN)
+        _cell(ws, row, 3, "Comparison / Changes", fill=PatternFill("solid", fgColor="D0E0F0"), font=Font(color="000080", bold=True, name="Calibri", size=10), align=_CENTER, border=_THIN)
         _cell(ws, row, 4, "", border=_THIN)
-        _cell(ws, row, 5, "", border=_THIN)
+        ws.merge_cells(start_row=row, start_column=3, end_row=row, end_column=4)
+
+        _cell(ws, row, 5, f"Contract {year_2}", fill=_LGRAY, font=_BLACK_BOLD, align=_LEFT, border=_THIN)
         _cell(ws, row, 6, "", border=_THIN)
-        ws.merge_cells(start_row=row, start_column=3, end_row=row, end_column=6)
+        ws.merge_cells(start_row=row, start_column=5, end_row=row, end_column=6)
         row += 1
 
         for item in items:
-            c1_raw = item.get("contract_1") or ""
-            c2_raw = item.get("contract_2") or ""
+            c1_raw = item.get("contract_1", [])
+            c2_raw = item.get("contract_2", [])
+            diff = str(item.get("diff_summary") or "SAME")
             
-            c1 = "\n".join(c1_raw) if isinstance(c1_raw, list) else str(c1_raw)
-            c2 = "\n".join(c2_raw) if isinstance(c2_raw, list) else str(c2_raw)
+            c1_text, c1_notes = _extract_notes(c1_raw)
+            c2_text, c2_notes = _extract_notes(c2_raw)
+            all_notes = c1_notes + [n for n in c2_notes if n not in c1_notes]
 
-            _cell(ws, row, 1, c1, font=_BLACK_NORM, align=_LEFT, border=_THIN)
+            _cell(ws, row, 1, c1_text, font=_BLACK_NORM, align=_LEFT, border=_THIN)
             _cell(ws, row, 2, "", border=_THIN)
             ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=2)
 
-            _cell(ws, row, 3, c2, font=_BLACK_NORM, align=_LEFT, border=_THIN)
+            _cell(ws, row, 3, diff, font=Font(color="000080", bold=True, name="Calibri", size=10), align=_CENTER, border=_THIN)
             _cell(ws, row, 4, "", border=_THIN)
-            _cell(ws, row, 5, "", border=_THIN)
+            ws.merge_cells(start_row=row, start_column=3, end_row=row, end_column=4)
+
+            _cell(ws, row, 5, c2_text, font=_BLACK_NORM, align=_LEFT, border=_THIN)
             _cell(ws, row, 6, "", border=_THIN)
-            ws.merge_cells(start_row=row, start_column=3, end_row=row, end_column=6)
+            ws.merge_cells(start_row=row, start_column=5, end_row=row, end_column=6)
             
-            ws.row_dimensions[row].height = max(18, 15 * (max(c1.count("\n"), c2.count("\n")) + 1))
+            ws.row_dimensions[row].height = max(25, 15 * (max(c1_text.count("\n"), c2_text.count("\n")) + 1))
             row += 1
+            
+            # Notes span the full width below the side-by-side cells
+            if all_notes:
+                notes_text = "\n".join(all_notes)
+                _cell(ws, row, 1, notes_text, font=Font(color="CC0000", bold=True, name="Calibri", size=10), align=_CENTER, border=_THIN)
+                for c in range(2, 7): _cell(ws, row, c, "", border=_THIN)
+                ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=6)
+                ws.row_dimensions[row].height = max(18, 15 * (notes_text.count("\n") + 1))
+                row += 1
+                
         row += 1
 
     # Extra Bed is stacked in the image

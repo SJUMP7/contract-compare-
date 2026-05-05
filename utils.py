@@ -88,6 +88,62 @@ def validate_api_key(api_key: str) -> tuple[bool, str]:
     return False, "API key invalid or Gemini API not enabled for this project."
 
 
+# ─── JSON Schema Definition ───────────────────────────────────────────────────
+_policy_schema = types.Schema(
+    type=types.Type.OBJECT,
+    properties={
+        "topic": types.Schema(type=types.Type.STRING),
+        "contract_1": types.Schema(type=types.Type.ARRAY, items=types.Schema(type=types.Type.STRING)),
+        "contract_2": types.Schema(type=types.Type.ARRAY, items=types.Schema(type=types.Type.STRING)),
+        "diff_summary": types.Schema(type=types.Type.STRING),
+    },
+    required=["topic", "contract_1", "contract_2", "diff_summary"]
+)
+
+_response_schema = types.Schema(
+    type=types.Type.OBJECT,
+    properties={
+        "step_by_step_analysis": types.Schema(type=types.Type.ARRAY, items=types.Schema(type=types.Type.STRING)),
+        "hotel_name": types.Schema(type=types.Type.STRING),
+        "year_1": types.Schema(type=types.Type.STRING),
+        "year_2": types.Schema(type=types.Type.STRING),
+        "seasons": types.Schema(
+            type=types.Type.ARRAY,
+            items=types.Schema(
+                type=types.Type.OBJECT,
+                properties={
+                    "season_name": types.Schema(type=types.Type.STRING),
+                    "period_1": types.Schema(type=types.Type.STRING),
+                    "period_2": types.Schema(type=types.Type.STRING),
+                    "conditions": types.Schema(type=types.Type.ARRAY, items=types.Schema(type=types.Type.STRING)),
+                    "rooms": types.Schema(
+                        type=types.Type.ARRAY,
+                        items=types.Schema(
+                            type=types.Type.OBJECT,
+                            properties={
+                                "room_name": types.Schema(type=types.Type.STRING),
+                                "price_1": types.Schema(type=types.Type.STRING),
+                                "price_2": types.Schema(type=types.Type.STRING),
+                            },
+                            required=["room_name", "price_1", "price_2"]
+                        )
+                    )
+                },
+                required=["season_name", "period_1", "period_2", "conditions", "rooms"]
+            )
+        ),
+        "extra_bed": types.Schema(type=types.Type.ARRAY, items=_policy_schema),
+        "early_bird": types.Schema(type=types.Type.ARRAY, items=_policy_schema),
+        "bonus_night": types.Schema(type=types.Type.ARRAY, items=_policy_schema),
+        "wellbeing": types.Schema(type=types.Type.ARRAY, items=_policy_schema),
+        "cancellation": types.Schema(type=types.Type.ARRAY, items=_policy_schema),
+    },
+    required=[
+        "step_by_step_analysis", "hotel_name", "year_1", "year_2", 
+        "seasons", "extra_bed", "early_bird", "bonus_night", "wellbeing", "cancellation"
+    ]
+)
+
 
 # ─── Build prompt ─────────────────────────────────────────────────────────────
 def _build_prompt() -> str:
@@ -129,7 +185,11 @@ FORMATTING PATTERNS (STRICT!)
    - • Valid Period: [Season Name / Date]
    - Notice [x] days prior to arrival, penalty [x]% (or x nights)
 
-5. **Rooms & Prices**:
+5. **Important Notes & Remarks**:
+   If there are important notes, remarks, exceptions, or conditions (e.g. "NOTE: If reservation overlaps different seasons..."), you MUST prefix that specific string with `[RED] ` so our system can color it red.
+   - [RED] • NOTE: Early bird offer is NOT applicable for meal plans.
+
+6. **Rooms & Prices**:
    Extract all room names and prices exactly. DO NOT calculate percentage or diffs! The Python system will do the math.
 
 ═══════════════════════════════════════════════
@@ -184,29 +244,33 @@ RETURN THIS EXACT JSON STRUCTURE:
   "early_bird": [
     {{
       "topic": "Early Bird details",
-      "contract_1": ["• Valid Period: 1 Nov 24 - 31 Oct 25", "• E.B 60 DAYS, 10% discount", "• Blackout dates: None"],
-      "contract_2": ["• Valid Period: 1 Nov 25 - 31 Oct 26", "• E.B 60 DAYS, 10% discount", "• Blackout dates: None"]
+      "contract_1": ["• Valid Period: 1 Nov 24 - 31 Oct 25", "• E.B 60 DAYS, 10% discount", "• Blackout dates: None", "[RED] • NOTE: Not applicable for meal plans"],
+      "contract_2": ["• Valid Period: 1 Nov 25 - 31 Oct 26", "• E.B 60 DAYS, 10% discount", "• Blackout dates: None", "[RED] • NOTE: Not applicable for meal plans"],
+      "diff_summary": "SAME"
     }}
   ],
   "bonus_night": [
     {{
       "topic": "Bonus night details",
       "contract_1": ["• Valid Period: 1 May 24 - 31 Oct 24", "• STAY 5 PAY 4"],
-      "contract_2": ["• Valid Period: 1 May 25 - 31 Oct 25", "• STAY 5 PAY 4"]
+      "contract_2": ["• Valid Period: 1 May 25 - 31 Oct 25", "• STAY 5 PAY 4"],
+      "diff_summary": "SAME"
     }}
   ],
   "wellbeing": [
     {{
       "topic": "Long stay / Wellbeing",
       "contract_1": ["• Honeymoon Benefits (Minimum 3 nights stay required):", "• Welcome Drink and Cold Towel upon arrival", "• Complimentary one (1) slice of cake in room"],
-      "contract_2": ["• Honeymoon Benefits (Minimum 3 nights stay required):", "• Welcome Drink and Cold Towel upon arrival", "• Complimentary one (1) slice of cake in room"]
+      "contract_2": ["• Honeymoon Benefits (Minimum 3 nights stay required):", "• Welcome Drink and Cold Towel upon arrival", "• Complimentary one (1) slice of cake in room"],
+      "diff_summary": "SAME"
     }}
   ],
   "cancellation": [
     {{
       "topic": "Cancellation Policy",
       "contract_1": ["• Valid Period: Peak Season", "Notice 45 days prior to arrival, penalty 100% of total booking revenue"],
-      "contract_2": ["• Valid Period: Peak Season", "Notice 45 days prior to arrival, penalty 100% of total booking revenue"]
+      "contract_2": ["• Valid Period: Peak Season", "Notice 45 days prior to arrival, penalty 100% of total booking revenue", "[RED] • NOTE: If reservation overlaps different seasons, the higher season cancellation terms apply"],
+      "diff_summary": "25-26 added Note for overlapping seasons"
     }}
   ]
 }}
@@ -228,6 +292,7 @@ def stream_contract_comparison(pdf1_bytes: bytes, pdf2_bytes: bytes, api_key: st
         top_k=1,
         max_output_tokens=32768,
         response_mime_type="application/json",
+        response_schema=_response_schema,
     )
 
     # Convert PDFs to native Gemini Parts
