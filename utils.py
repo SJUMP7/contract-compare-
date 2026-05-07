@@ -156,6 +156,7 @@ CRITICAL JSON RULES:
 1. You must output STRICTLY VALID JSON.
 2. DO NOT use double quotes (") inside any of your string values. If you need to quote something, use single quotes (').
 3. If you need newlines within a string, escape them as \\n. DO NOT use literal unescaped newlines.
+4. Ensure every property and array element is separated by a comma.
 
 ═══════════════════════════════════════════════
 FORMATTING PATTERNS (STRICT!)
@@ -228,8 +229,8 @@ RETURN THIS EXACT JSON STRUCTURE:
       "rooms": [
         {{
           "room_name": "Deluxe Room",
-          "price_1": 15000,
-          "price_2": 16000
+          "price_1": "15000",
+          "price_2": "16000"
         }}
       ]
     }}

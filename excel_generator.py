@@ -47,15 +47,20 @@ def _border_row(ws, row, num_cols=8):
 
 def _clean_price(val) -> float:
     """Extract numeric value from strings like '1,500 THB' or '1,500.50'."""
-    if not val: return 0.0
+    if val is None: return 0.0
     if isinstance(val, (int, float)): return float(val)
     # Remove commas and extract first valid float/int pattern
     import re
-    s = str(val).replace(',', '')
+    s = str(val).replace(',', '').strip()
+    if not s: return 0.0
+    
+    # Try to find a number
     match = re.search(r"[-+]?\d*\.\d+|\d+", s)
     if match:
-        try: return float(match.group())
-        except: return 0.0
+        try: 
+            return float(match.group())
+        except (ValueError, TypeError): 
+            return 0.0
     return 0.0
 
 
@@ -115,7 +120,13 @@ def generate_comparison_excel(data: dict) -> bytes:
             price_2 = _clean_price(p2_val)
 
             diff_amt = price_2 - price_1
-            diff_pct = (price_2 - price_1) / price_1 if price_1 > 0 else 0
+            # Hole fix: If price_1 is 0 and price_2 > 0, it's a 100% increase (infinite, but we use 1.0)
+            if price_1 > 0:
+                diff_pct = (price_2 - price_1) / price_1
+            elif price_1 == 0 and price_2 > 0:
+                diff_pct = 1.0 # 100%
+            else:
+                diff_pct = 0
 
             _cell(ws, row, 1, name, font=_BLACK_NORM, align=_LEFT, border=_THIN)
             _cell(ws, row, 2, price_1, font=_BLACK_NORM, align=_CENTER, border=_THIN)
@@ -152,15 +163,18 @@ def generate_comparison_excel(data: dict) -> bytes:
 
     def _extract_notes(lines):
         """Returns (clean_text, notes_list)"""
+        if lines is None: return "", []
         if not isinstance(lines, list):
-            lines = [lines]
+            lines = [str(lines)]
         clean = []
         notes = []
         for line in lines:
-            if "[RED]" in line:
-                notes.append(line.replace("[RED]", "").strip())
+            if not line: continue
+            line_str = str(line)
+            if "[RED]" in line_str:
+                notes.append(line_str.replace("[RED]", "").strip())
             else:
-                clean.append(line)
+                clean.append(line_str)
         return "\n".join(clean), notes
 
     def _build_stacked_section(title, key):

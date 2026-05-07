@@ -11,7 +11,6 @@ from excel_generator import generate_comparison_excel
 # ─── Page config ─────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="Contract Compare",
-    page_icon="📋",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -27,6 +26,23 @@ html,body,[class*="css"]{font-family:'Inter',-apple-system,BlinkMacSystemFont,sa
 .block-container { padding: 2rem 2.5rem 3rem !important; }
 section[data-testid="stSidebar"] { border-right: 1px solid var(--secondary-background-color) !important; }
 
+/* Sidebar clean buttons */
+section[data-testid="stSidebar"] .stDownloadButton button {
+    background-color: transparent !important;
+    border: 1px solid transparent !important;
+    color: var(--text-color) !important;
+    border-radius: 8px !important;
+    font-size: 13px !important;
+    font-weight: 500 !important;
+    justify-content: flex-start !important;
+    padding: 6px 12px !important;
+    transition: background-color 0.2s ease !important;
+    box-shadow: none !important;
+}
+section[data-testid="stSidebar"] .stDownloadButton button:hover {
+    background-color: var(--secondary-background-color) !important;
+}
+
 /* Hero */
 .hero { text-align: center; padding: 44px 16px 28px; }
 .eyebrow { font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: #3b82f6; margin-bottom: 8px; }
@@ -39,7 +55,7 @@ section[data-testid="stSidebar"] { border-right: 1px solid var(--secondary-backg
     -webkit-text-fill-color: transparent;
     display: inline-block;
 }
-.sub { font-size: 17px; color: gray; max-width: 540px; margin: 0 auto; line-height: 1.7; font-weight: 400; }
+.sub { font-size: 17px; color: var(--text-color); opacity: 0.7; max-width: 540px; margin: 0 auto; line-height: 1.7; font-weight: 400; }
 
 /* Upload card */
 .card { background: var(--background-color); border: 1px solid var(--secondary-background-color); border-radius: 16px; padding: 26px 24px; transition: all .3s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 0 4px 6px -1px rgba(0,0,0,.05); }
@@ -76,13 +92,40 @@ def load_key():
 
 def save_key(k):
     with open(KEY_FILE, "w") as f: f.write(k.strip())
-# ─── Clean JSON helper ────────────────────────────────────────────────────────
+# ─── Clean & Repair JSON helper ───────────────────────────────────────────────
 def _clean_json(raw: str) -> str:
+    # Remove markdown code blocks
     text = re.sub(r"```(?:json)?", "", raw).strip()
+    
+    # Extract only the JSON part
     s, e = text.find("{"), text.rfind("}")
     if s != -1 and e > s:
         text = text[s: e + 1]
-    return re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", text)
+    
+    # Remove invalid control characters
+    text = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", text)
+    
+    return text
+
+def _repair_json(text: str) -> str:
+    """
+    Attempt to fix common LLM JSON errors like missing commas or trailing commas.
+    """
+    if not text: return text
+    
+    # 1. Fix missing commas between properties/elements on new lines
+    # Look for: "value"\n  "next_key"  -> "value",\n  "next_key"
+    # Handles strings, numbers, booleans, and closing brackets/braces
+    text = re.sub(r'("|\d|true|false|null|\]|\})\s*\n\s*"', r'\1,\n"', text)
+    
+    # 2. Fix missing commas before new objects/arrays
+    text = re.sub(r'("|\d|true|false|null|\]|\})\s*\n\s*(\{|\[)', r'\1,\n\2', text)
+    
+    # 3. Remove trailing commas (which json.loads hates)
+    # "item", ] -> "item" ]
+    text = re.sub(r',\s*([\]\}])', r'\1', text)
+    
+    return text
 
 
 # ─── Sidebar ──────────────────────────────────────────────────────────────────
@@ -92,12 +135,11 @@ with st.sidebar:
     elif os.path.exists("logo.jpg"):
         st.image("logo.jpg", use_container_width=True)
     else:
-        st.markdown("## 📋 Contract Compare")
+        st.markdown("<div style='font-size: 20px; font-weight: 600; letter-spacing: -0.02em; color: var(--text-color); margin-bottom: 4px;'>CONTRACT COMPARE</div>", unsafe_allow_html=True)
         
-    st.caption("Hotel Contract Analysis · v3.1")
-    st.divider()
+    st.markdown("<div style='font-size: 13px; font-weight: 400; color: var(--text-color); opacity: 0.6; margin-bottom: 24px;'>HOTEL CONTRACT ANALYSIS · V3.1</div>", unsafe_allow_html=True)
 
-    st.markdown("**⚙️ AI ENGINE**")
+    st.markdown("<div style='font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-color); opacity: 0.6; margin-bottom: 12px; margin-top: 16px;'>AI ENGINE</div>", unsafe_allow_html=True)
     saved_key = load_key()
     with st.expander("API Key Configuration", expanded=not bool(saved_key)):
         api_key = st.text_input("GEMINI API KEY", type="password", value=saved_key, placeholder="AIza…")
@@ -110,23 +152,31 @@ with st.sidebar:
                 st.success(msg)
             else:
                 st.error(msg)
-                st.info("🔑 Go to [aistudio.google.com](https://aistudio.google.com) → Get API key")
+                st.info("Go to aistudio.google.com to get API key")
         else:
             st.warning("API Key required to run.")
 
-    st.divider()
-    st.markdown("**📜 HISTORY**")
+    st.markdown("<div style='font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-color); opacity: 0.6; margin-bottom: 12px; margin-top: 24px;'>HISTORY</div>", unsafe_allow_html=True)
     
     # Check history folder
     os.makedirs("history", exist_ok=True)
     history_files = sorted(os.listdir("history"), reverse=True)
     if not history_files:
-        st.caption("No previous comparisons.")
+        st.markdown("<div style='font-size: 13px; color: var(--text-color); opacity: 0.6;'>No previous comparisons.</div>", unsafe_allow_html=True)
     else:
         for hf in history_files[:7]:  # Show latest 7
+            if hf.startswith("Comparison_"):
+                display_name = hf.split('_vs_')[0].replace('Comparison_', '')[:15] + "..."
+            else:
+                parts = hf.rsplit("_", 2)
+                if len(parts) >= 3:
+                    display_name = parts[0][:25]
+                else:
+                    display_name = hf[:25]
+            
             with open(os.path.join("history", hf), "rb") as f:
                 st.download_button(
-                    label=f"📄 {hf.split('_vs_')[0].replace('Comparison_', '')[:15]}...",
+                    label=f"{display_name}",
                     data=f.read(),
                     file_name=hf,
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -166,13 +216,13 @@ with c1:
     st.markdown('<div class="card"><div class="c-eye">Contract 1</div><div class="c-ttl">Previous Year</div></div>', unsafe_allow_html=True)
     up1 = st.file_uploader("Contract 1", type=["pdf"], key="pdf1", label_visibility="collapsed")
     if up1:
-        st.success(f"✓  {up1.name}")
+        st.success(f"Ready: {up1.name}")
 
 with c2:
     st.markdown('<div class="card"><div class="c-eye">Contract 2</div><div class="c-ttl">New Year</div></div>', unsafe_allow_html=True)
     up2 = st.file_uploader("Contract 2", type=["pdf"], key="pdf2", label_visibility="collapsed")
     if up2:
-        st.success(f"✓  {up2.name}")
+        st.success(f"Ready: {up2.name}")
 
 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -252,8 +302,8 @@ if run:
         
         progress_bar = st.progress(5)
         
-        pdf1_bytes = up1.read()
-        pdf2_bytes = up2.read()
+        pdf1_bytes = up1.getvalue()
+        pdf2_bytes = up2.getvalue()
 
         chunks = []
         char_count = 0
@@ -276,11 +326,11 @@ if run:
 
     # 3. Quota guard
     if "429" in result_raw or "quota" in result_raw.lower():
-        st.error("🚫  **API Quota Exceeded (429)**")
+        st.error("**API Quota Exceeded (429)**")
         st.warning(
             "Free-tier limit reached (20 req/day).\n\n"
-            "**Fix:** Enable Billing at [aistudio.google.com](https://aistudio.google.com) "
-            "→ 1,500 req/day + Gemini 1.5 Pro"
+            "**Fix:** Enable Billing at aistudio.google.com "
+            "to increase quota."
         )
         st.stop()
 
@@ -288,15 +338,31 @@ if run:
     cleaned = _clean_json(result_raw)
     try:
         data = json.loads(cleaned)
-    except json.JSONDecodeError as ex:
-        st.error(f"**JSON Parse Error:** {ex}")
-        with st.expander("Raw AI response"):
-            st.code(result_raw, language="text")
-        st.stop()
+    except json.JSONDecodeError:
+        # Try to repair and parse again
+        try:
+            repaired = _repair_json(cleaned)
+            data = json.loads(repaired)
+        except json.JSONDecodeError as ex:
+            st.error(f"**JSON Parse Error:** {ex}")
+            st.info("The AI response was slightly malformed. You can download the raw response below and send it to the developer.")
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                with st.expander("View Raw AI response"):
+                    st.code(result_raw, language="text")
+            with col2:
+                st.download_button(
+                    "Download Raw Response (Debug)",
+                    data=result_raw,
+                    file_name="raw_ai_response.txt",
+                    mime="text/plain"
+                )
+            st.stop()
 
     if "error" in data:
         err = data["error"]
-        st.error("🚫 Quota Exceeded" if ("429" in err or "quota" in err.lower()) else f"AI Error: {err}")
+        st.error("Quota Exceeded" if ("429" in err or "quota" in err.lower()) else f"AI Error: {err}")
         st.stop()
 
     # 5. Generate Excel and Save to History
@@ -305,17 +371,29 @@ if run:
         
         # Save to history folder
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        n1 = re.sub(r'[\\/*?:"<>|]', "", up1.name.replace(".pdf", ""))
-        n2 = re.sub(r'[\\/*?:"<>|]', "", up2.name.replace(".pdf", ""))
-        history_file_name = f"Comparison_{n1[:15]}_vs_{n2[:15]}_{timestamp}.xlsx"
+        # Ensure hotel_name is a string and not empty
+        hotel_name_raw = data.get("hotel_name")
+        if not hotel_name_raw or not str(hotel_name_raw).strip():
+            hotel_name = "Unknown_Hotel"
+        else:
+            hotel_name = str(hotel_name_raw).strip()
         
-        os.makedirs("history", exist_ok=True)
-        with open(os.path.join("history", history_file_name), "wb") as f:
-            f.write(excel_bytes)
+        if hotel_name.upper() == "HOTEL NAME":
+            hotel_name = "Unknown_Hotel"
+        
+        hotel_name_safe = re.sub(r'[\\/*?:"<>|]', "", hotel_name)
+        history_file_name = f"{hotel_name_safe}_{timestamp}.xlsx"
+        
+        try:
+            os.makedirs("history", exist_ok=True)
+            with open(os.path.join("history", history_file_name), "wb") as f:
+                f.write(excel_bytes)
+        except Exception as e:
+            st.warning(f"Could not save to history: {e}")
             
     except Exception as ex:
         st.error(f"Excel generation failed: {ex}")
-        with st.expander("JSON data"):
+        with st.expander("Debug: JSON data"):
             st.json(data)
         st.stop()
 
@@ -369,10 +447,7 @@ if run:
     if recommendation:
         # Move recommendation banner slightly down so it isn't blocked by the modal
         st.markdown("<br><br><br><br><br><br><br><br><br><br>", unsafe_allow_html=True)
-        if "✅" in recommendation:
-            bg, border = "#f0fdf4", "#86efac"
-        else:
-            bg, border = "#fffbeb", "#fcd34d"
+        bg, border = "var(--background-color)", "var(--secondary-background-color)"
         st.markdown(
             f'<div style="background:{bg};border:2px solid {border};border-radius:12px;'
             f'padding:16px 24px;margin:16px 0;font-size:16px;font-weight:600;text-align:center;color:#0f172a">'
@@ -382,7 +457,7 @@ if run:
 
     # The download button is injected directly into the modal!
     st.download_button(
-        "⬇  Download Excel Report",
+        "Download Excel Report",
         data=excel_bytes,
         file_name="Contract_Comparison.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
