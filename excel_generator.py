@@ -45,14 +45,20 @@ def _border_row(ws, row, num_cols=8):
         ws.cell(row=row, column=col).border = _THIN
 
 
-def _clean_price(val) -> float:
-    """Extract numeric value from strings like '1,500 THB' or '1,500.50'."""
-    if val is None: return 0.0
+def _clean_price(val):
+    """Extract numeric value from strings like '1,500 THB' or '1,500.50'.
+    Returns None for non-numeric values like 'N/A' or 'on request only'."""
+    if val is None: return None
     if isinstance(val, (int, float)): return float(val)
     # Remove commas and extract first valid float/int pattern
     import re
     s = str(val).replace(',', '').strip()
-    if not s: return 0.0
+    if not s: return None
+    
+    # Detect explicit non-numeric markers
+    s_lower = s.lower()
+    if s_lower in ('n/a', '-', '--', 'na', 'tba', 'tbd') or 'on request' in s_lower or 'not available' in s_lower:
+        return None
     
     # Try to find a number
     match = re.search(r"[-+]?\d*\.\d+|\d+", s)
@@ -60,8 +66,8 @@ def _clean_price(val) -> float:
         try: 
             return float(match.group())
         except (ValueError, TypeError): 
-            return 0.0
-    return 0.0
+            return None
+    return None
 
 
 def generate_comparison_excel(data: dict) -> bytes:
@@ -110,7 +116,7 @@ def generate_comparison_excel(data: dict) -> bytes:
         else:
             cond_lines = str(cond_raw).split('\n')
         
-        rooms = season.get("rooms", [])
+        rooms = season.get("rooms") or []
         for i, rm in enumerate(rooms):
             name = rm.get("room_name") or ""
             p1_val = rm.get("price_1", 0)
@@ -119,30 +125,42 @@ def generate_comparison_excel(data: dict) -> bytes:
             price_1 = _clean_price(p1_val)
             price_2 = _clean_price(p2_val)
 
-            diff_amt = price_2 - price_1
-            # Hole fix: If price_1 is 0 and price_2 > 0, it's a 100% increase (infinite, but we use 1.0)
-            if price_1 > 0:
-                diff_pct = (price_2 - price_1) / price_1
-            elif price_1 == 0 and price_2 > 0:
-                diff_pct = 1.0 # 100%
+            price_1_disp = price_1 if price_1 is not None else "N/A"
+            price_2_disp = price_2 if price_2 is not None else "N/A"
+
+            if price_1 is not None and price_2 is not None:
+                diff_amt = price_2 - price_1
+                if price_1 > 0:
+                    diff_pct = (price_2 - price_1) / price_1
+                elif price_1 == 0 and price_2 > 0:
+                    diff_pct = 1.0 # 100%
+                else:
+                    diff_pct = 0.0
+                diff_amt_disp = diff_amt
+                diff_pct_disp = diff_pct
             else:
+                diff_amt = 0
                 diff_pct = 0
+                diff_amt_disp = "-"
+                diff_pct_disp = "-"
 
             _cell(ws, row, 1, name, font=_BLACK_NORM, align=_LEFT, border=_THIN)
-            _cell(ws, row, 2, price_1, font=_BLACK_NORM, align=_CENTER, border=_THIN)
-            _cell(ws, row, 3, price_2, font=_BLACK_NORM, align=_CENTER, border=_THIN)
-            ws.cell(row=row, column=2).number_format = '#,##0'
-            ws.cell(row=row, column=3).number_format = '#,##0'
+            _cell(ws, row, 2, price_1_disp, font=_BLACK_NORM, align=_CENTER, border=_THIN)
+            _cell(ws, row, 3, price_2_disp, font=_BLACK_NORM, align=_CENTER, border=_THIN)
+            if price_1 is not None: ws.cell(row=row, column=2).number_format = '#,##0'
+            if price_2 is not None: ws.cell(row=row, column=3).number_format = '#,##0'
 
-            pct_cell = _cell(ws, row, 4, diff_pct, font=_BLACK_NORM, align=_CENTER, border=_THIN)
-            pct_cell.number_format = '0.00%'
-            if diff_pct > 0: pct_cell.font = Font(color="CC0000", bold=True, name="Calibri", size=10)
-            elif diff_pct < 0: pct_cell.font = Font(color="16A34A", bold=True, name="Calibri", size=10)
+            pct_cell = _cell(ws, row, 4, diff_pct_disp, font=_BLACK_NORM, align=_CENTER, border=_THIN)
+            if isinstance(diff_pct_disp, float):
+                pct_cell.number_format = '0.00%'
+                if diff_pct > 0: pct_cell.font = Font(color="CC0000", bold=True, name="Calibri", size=10)
+                elif diff_pct < 0: pct_cell.font = Font(color="16A34A", bold=True, name="Calibri", size=10)
 
-            amt_cell = _cell(ws, row, 5, diff_amt, font=_BLACK_NORM, align=_CENTER, border=_THIN)
-            amt_cell.number_format = '+#,##0;-#,##0;0'
-            if diff_amt > 0: amt_cell.font = Font(color="CC0000", bold=True, name="Calibri", size=10)
-            elif diff_amt < 0: amt_cell.font = Font(color="16A34A", bold=True, name="Calibri", size=10)
+            amt_cell = _cell(ws, row, 5, diff_amt_disp, font=_BLACK_NORM, align=_CENTER, border=_THIN)
+            if isinstance(diff_amt_disp, float):
+                amt_cell.number_format = '+#,##0;-#,##0;0'
+                if diff_amt > 0: amt_cell.font = Font(color="CC0000", bold=True, name="Calibri", size=10)
+                elif diff_amt < 0: amt_cell.font = Font(color="16A34A", bold=True, name="Calibri", size=10)
             
             cond_text = cond_lines[i] if i < len(cond_lines) else ""
             _cell(ws, row, 6, cond_text, font=Font(color="CC0000", name="Calibri", size=10), align=_LEFT, border=_THIN)

@@ -2,7 +2,7 @@
 app.py — Compare Hotel Contracts  (optimised build)
 Streaming AI response · Cached PDF · Cached model · Clean light UI
 """
-import os, re, json, toml, copy
+import os, re, json, toml, copy, base64
 import streamlit as st
 from datetime import datetime
 from utils import stream_contract_comparison, validate_api_key, detect_available_model
@@ -130,8 +130,7 @@ def _repair_json(text: str) -> str:
     if not text: return text
     
     # 1. Fix missing commas between properties/elements on new lines
-    text = re.sub(r'("|\d|true|false|null|\]|\})\s*\n\s*"', r'\1,\n"', text)
-    text = re.sub(r'("|\d|true|false|null|\]|\})\s*\n\s*(\{|\[)', r'\1,\n\2', text)
+    # (Removed: Regex-based comma insertion is too fragile and can create false commas)
     
     # 2. Remove trailing commas (which json.loads hates)
     text = re.sub(r',\s*([\]\}])', r'\1', text)
@@ -185,11 +184,11 @@ with st.sidebar:
     if api_key:
         if api_key != saved_key:
             save_key(api_key)
-            ok, msg = validate_api_key(api_key)
-            if ok:
-                st.success("API Key Verified")
-            else:
-                st.error("Invalid API Key")
+        ok, msg = validate_api_key(api_key)
+        if ok:
+            st.caption(f"✓ {msg}")
+        else:
+            st.error("Invalid API Key")
     else:
         st.caption("API Key required to run analysis.")
 
@@ -197,7 +196,7 @@ with st.sidebar:
     
     # Check history folder
     os.makedirs("history", exist_ok=True)
-    history_files = sorted(os.listdir("history"), reverse=True)
+    history_files = sorted([f for f in os.listdir("history") if f.endswith(".xlsx")], reverse=True)
     if not history_files:
         st.markdown("<div style='font-size: 13px; color: var(--text-color); opacity: 0.5; padding-left: 4px;'>No recent audits found.</div>", unsafe_allow_html=True)
     else:
@@ -230,7 +229,6 @@ with st.sidebar:
 logo_html = ""
 for ext in ["png", "jpg", "jpeg"]:
     if os.path.exists(f"logo.{ext}"):
-        import base64
         with open(f"logo.{ext}", "rb") as f:
             b64 = base64.b64encode(f.read()).decode()
         logo_html = f'<div style="margin-bottom:16px;"><img src="data:image/{ext};base64,{b64}" style="max-height:90px; border-radius:12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1);"></div>'
@@ -369,6 +367,12 @@ if st.session_state.get("started"):
         
     render_modal(10)
     
+    if not up1 or not up2:
+        placeholder.empty()
+        st.error("Upload files not found. Please upload both contracts and try again.")
+        st.session_state.started = False
+        st.stop()
+    
     pdf1_bytes = up1.getvalue()
     pdf2_bytes = up2.getvalue()
     
@@ -458,7 +462,8 @@ if st.session_state.get("review_mode"):
     edited_data = copy.deepcopy(st.session_state.extracted_data)
     
     # Display editable tables for seasons
-    for i, season in enumerate(edited_data.get("seasons", [])):
+    seasons_data = edited_data.get("seasons") or []
+    for i, season in enumerate(seasons_data):
         s_name = season.get("season_name") or f"Season {i+1}"
         p1 = season.get("period_1", "")
         p2 = season.get("period_2", "")

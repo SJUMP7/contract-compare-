@@ -398,68 +398,7 @@ def stream_contract_comparison(pdf1_bytes: bytes, pdf2_bytes: bytes, api_key: st
     yield f'{{"error":"All models failed. Details: {safe}"}}'
 
 
-# ─── Quick Verify ──────────────────────────────────────────────────────────────
-def verify_hotel_names(pdf1_bytes: bytes, pdf2_bytes: bytes, api_key: str) -> tuple[str, str]:
-    """
-    Quickly extract hotel names from both PDFs to verify they match.
-    Returns (name1, name2).
-    """
-    client = _get_client(api_key)
-    config = types.GenerateContentConfig(
-        temperature=0,
-        max_output_tokens=100,
-        response_mime_type="application/json",
-        response_schema=types.Schema(
-            type=types.Type.OBJECT,
-            properties={
-                "hotel_1": types.Schema(type=types.Type.STRING),
-                "hotel_2": types.Schema(type=types.Type.STRING),
-            }
-        )
-    )
-    
-    pdf1_part = types.Part.from_bytes(data=pdf1_bytes, mime_type="application/pdf")
-    pdf2_part = types.Part.from_bytes(data=pdf2_bytes, mime_type="application/pdf")
-    
-    try:
-        # Auto-detect the best model (same as main comparison)
-        best_model, _ = detect_available_model(api_key)
-        if not best_model:
-            best_model = "gemini-2.0-flash"  # fallback
-        
-        # Use a very specific prompt for JSON
-        prompt = """
-        You are a data extractor. 
-        Return ONLY a JSON object with two keys: 'hotel_1' and 'hotel_2'.
-        Identify the exact Hotel Name from each document provided.
-        - Document 1 (Contract 1) -> 'hotel_1'
-        - Document 2 (Contract 2) -> 'hotel_2'
-        
-        Example Output: {"hotel_1": "Hilton Bangkok", "hotel_2": "Hilton Bangkok"}
-        """
-        
-        resp = client.models.generate_content(
-            model=best_model,
-            contents=[
-                "PDF 1:", pdf1_part, 
-                "PDF 2:", pdf2_part, 
-                prompt
-            ],
-            config=config
-        )
-        
-        text = resp.text.strip()
-        # Resilient JSON extraction
-        json_match = re.search(r'\{.*\}', text, re.DOTALL)
-        if json_match:
-            data = json.loads(json_match.group())
-            return str(data.get("hotel_1", "Unknown")).strip(), str(data.get("hotel_2", "Unknown")).strip()
-        
-        return "Unknown", "Unknown"
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return "Unknown", "Unknown"
+
 
 
 # ─── Non-streaming alias (backward compatible) ────────────────────────────────
